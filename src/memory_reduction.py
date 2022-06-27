@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+# Function to reduce dataframe memory usage
+
 def reduce_memory_usage(df, verbose=True):
     '''
     Function to decrease memory usage of data frame.

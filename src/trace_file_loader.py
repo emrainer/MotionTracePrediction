@@ -2,6 +2,8 @@ import os
 import pandas as pd
 import numpy as np
 
+# Functions to load traces, equalize trace, and create a dataframe
+
 # Load Files
 def filelist(root):
     '''
@@ -20,6 +22,9 @@ def longest_true_seq(bool_curve):
     Given an array of booleans,
     return indices of longest streak
     of Trues
+    
+    Do not consider streaks shorter than 150 pts
+    since the threshold for a breathhold is 1.5 seconds 
     '''
     longest_streak = 0
     longest_streak_idx = []
@@ -36,9 +41,12 @@ def longest_true_seq(bool_curve):
                 longest_streak_idx = idx     
             streak = 0
             idx = []
+            
+    # only conisder streaks greater than 150 points 
     if streak > longest_streak and longest_streak < 150: 
         return [0]
     return longest_streak_idx
+
 
 def add_zeros(curve, bh_start_idx, bh_end_idx, beforeBH_len):
     ''' 
@@ -53,7 +61,13 @@ def add_zeros(curve, bh_start_idx, bh_end_idx, beforeBH_len):
 def process_curve(curve, beforeBH_len, afterBH_len):
     '''
     Extract input trace from entire trace
+    
+    curve: entire trace
+    beforeBH_len: number of points to include before breathhold start
+    afterBH_len: number of points to include after breathhold start
     '''
+    
+    # Use 0.001 instead of 0 as indicator of breathhold
     deriv = np.diff(curve)
     breath_hold_idx = longest_true_seq(abs(deriv)<=0.001) 
     bh_start_idx = breath_hold_idx[0]
@@ -63,29 +77,32 @@ def process_curve(curve, beforeBH_len, afterBH_len):
              return [], 0, 0
         bh_end_idx = len(curve)
         beforeBH_len = bh_start_idx
+    
     else:
         if len(breath_hold_idx) < afterBH_len:
              return [], 0, 0
         bh_end_idx = breath_hold_idx[afterBH_len-1] + 1
         if bh_start_idx < beforeBH_len:
-            return add_zeros(curve, bh_start_idx, bh_end_idx, beforeBH_len), len(breath_hold_idx)*.01, breath_hold_idx
+            return add_zeros(curve, bh_start_idx, bh_end_idx, beforeBH_len),\
+                   len(breath_hold_idx)*.01, breath_hold_idx
 
     curve_start_idx = bh_start_idx - beforeBH_len
+    
     return curve[curve_start_idx:bh_end_idx], len(breath_hold_idx)*.01, breath_hold_idx
 
 # Create Data Frame Format
 def get_breath_df(file_root, beforeBH_len=1400, afterBH_len=100, full_trace=False):
     '''
-    Given a root with files, get a dataframe of shape (5680, 2)
+    Given a root with files, get a dataframe 
     with input data traces (arrays) and 
     output data breath_holds (floats) 
     '''
     filenames = filelist(file_root)
     
     orig_curves = []
-    csv_breath_holds = []
+    csv_breath_holds = []  # breath-hold length listed in csv file
     traces = []
-    data_breath_holds = []
+    data_breath_holds = [] # breath-hold length seen in data
     bh_idxs = []
     bh_start_end = []
     
@@ -109,16 +126,23 @@ def get_breath_df(file_root, beforeBH_len=1400, afterBH_len=100, full_trace=Fals
     
     data = {'Trace': traces,'Csv_breath_holds': csv_breath_holds, 'Data_breath_holds': data_breath_holds, 
             'Full_trace': orig_curves, "breathhold_idx": bh_idxs, 'bh_start_end':bh_start_end}
+    
     return pd.DataFrame(data)
 
 
-def equalize_len_trace(df, trim_len):
+def equalize_len_trace(df, col: str, trim_len: int):
+    '''
+    Given a data fame and a column of traces,
+    equalize trace lengths using front zero-padding
+    '''
     equal_traces = []
     for i in range(df.shape[0]):
-        curve = df.iloc[:,0][i]
+        curve = df[col][i]
+        
         if len(curve) > trim_len:
             start_idx = len(curve)-trim_len
             equal_traces.append(curve[start_idx:])
+            
         elif len(curve) < trim_len:
             num_zeros = trim_len - len(curve)
             
@@ -127,11 +151,8 @@ def equalize_len_trace(df, trim_len):
             box = np.ones(box_pts)/box_pts
             random_nums = np.convolve(random_nums, box, mode = 'same')
             random_nums = random_nums[:num_zeros]
-            #zeros = np.zeros([1, num_zeros])[0]
             equal_traces.append(np.concatenate((random_nums, curve)))
         else:
             equal_traces.append(curve)
-        
-        
-            
-    df["Trace"] = equal_traces
+
+    df[col] = equal_traces
